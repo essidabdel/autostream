@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# VS Code
+.vscode/
+
+# Environment
+.env
+.venv/
+venv/
+ENV/
+
+# Data files
+*.sqlite3
+*.db
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data folders
+/data/bronze/csv/
+/data/bronze/json/
+/data/bronze/sql/
+/data/silver/telemetry/
+
+# Ignore all data except gold reporting
+!/data/gold/reporting_final.csv

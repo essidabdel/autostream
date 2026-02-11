@@ -1,0 +1,28 @@
+import os
+import subprocess
+import sys
+
+def run_script(script_name):
+    print(f"--- Exécution de {script_name} ---")
+    try:
+        # Utilise sys.executable pour être sûr d'utiliser le bon Python
+        subprocess.run([sys.executable, script_name], check=True)
+        print(f"✅ {script_name} terminé avec succès.\n")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Erreur lors de l'exécution de {script_name}: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    print("🚀 DÉMARRAGE DU PIPELINE AUTOSTREAM\n")
+    
+    # Étape 1 : Simulation des sources (Bronze)
+    run_script("generator.py")
+    
+    # Étape 2 : Nettoyage Spark (Silver)
+    run_script("pipeline_spark.py")
+    
+    # Étape 3 : Calcul métier et Score S (Gold)
+    run_script("pipeline_gold.py")
+    
+    print("✨ TOUTES LES ÉTAPES SONT TERMINÉES.")
+    print("📊 Les résultats finaux sont dans : data/gold/reporting_final.csv")
