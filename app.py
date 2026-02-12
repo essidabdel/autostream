@@ -115,12 +115,16 @@ def get_alert_emoji(level):
 def estimate_km_to_failure(row, lifetime_by_piece, type_map):
     """
     Estime l'echeance avant panne probable en kilometres.
-    Basee sur la duree de vie des pieces (piece_lifetime.csv).
+    Basee sur la duree de vie des pieces (piece_lifetime.csv) ET la probabilite de panne ML.
     Pour les vehicules OK (type_panne=0), retourne 30000 km (prochaine revision).
-    Affiche en tranches de 250 km pour une lecture stable.
+    Pour les vehicules avec panne, ajuste l'echeance selon la probabilite :
+    - Prob >= 70% (CRITIQUE) : max 2000 km
+    - Prob 40-70% (ALERTE) : 30-50% de l'echeance normale
+    - Prob < 40% (SURVEILLANCE) : 60-80% de l'echeance normale
     """
     km_depuis_revis = row.get("km_depuis_revis")
     type_panne = row.get("type_panne_predit")
+    prob_panne = row.get("prob_panne")
     type_maint = row.get("type")
 
     if pd.isna(km_depuis_revis):
@@ -153,9 +157,21 @@ def estimate_km_to_failure(row, lifetime_by_piece, type_map):
     if km_restant <= 0:
         return 0
 
+    # NOUVEAU : Ajuster l'échéance selon la probabilité de panne
+    if pd.notna(prob_panne):
+        if prob_panne >= 0.7:
+            # CRITIQUE : max 2000 km d'échéance
+            km_restant = min(km_restant, 2000)
+        elif prob_panne >= 0.4:
+            # ALERTE : 30-50% de l'échéance normale
+            km_restant = int(km_restant * 0.4)
+        else:
+            # SURVEILLANCE : 60-80% de l'échéance normale
+            km_restant = int(km_restant * 0.7)
+    
     # Arrondir a la tranche de 250 km superieure
     tranche = int(((km_restant + 249) // 250) * 250)
-    return tranche
+    return max(tranche, 0)  # Au minimum 0 km
 
 def load_piece_lifetime():
     """Charge la duree de vie des pieces (km_median) depuis le CSV."""
@@ -592,8 +608,8 @@ with st.expander("ℹ️ Comment interpréter ces indicateurs ?", expanded=False
     
     - **🚗 Véhicules** : Nombre de véhicules dans la sélection actuelle
     - **⚠️ Score Risque Moyen** : Score métier basé sur température et âge (informatif uniquement)
-    - **🔴 Critiques** : Véhicules avec panne détectée ET probabilité ≥ 70% → **Action immédiate**
-    - **🚨 Pannes Détectées** : Nombre TOTAL de véhicules avec panne détectée par le ML (inclut critiques + alertes)
+    - **🔴 Critiques** : Véhicules avec panne prédite ET probabilité ≥ 70% → **Action immédiate**
+    - **🚨 Interventions** : Nombre TOTAL de véhicules nécessitant une intervention (panne prédite par le ML)
     - **📍 Km Moyen** : Kilométrage moyen de la flotte (indicateur d'usure)
     
     **Note :** Le statut (OK/ALERTE/CRITIQUE) est désormais basé sur la prédiction ML, pas sur le score risque métier.
@@ -609,19 +625,14 @@ with kpi1:
         value=nb_vehicules,
         help="Nombre de véhicules dans la sélection actuelle"
     )
-    st.caption(
-        f"Affiches: {nb_vehicules}/{total_vehicules}" if nb_vehicules < total_vehicules else "Affiches: Tous"
-    )
 
 with kpi2:
     avg_score = filtered["score_risque"].mean() if "score_risque" in filtered.columns else 0
-    score_status = "🔴 Élevé" if avg_score > 70 else "🟢 Acceptable"
     st.metric(
         label="⚠️ Score Risque (moyen)",
         value=f"{avg_score:.1f}",
         help="Indice de risque moyen calcule a partir des facteurs: km, age, maintenance"
     )
-    st.caption(f"Statut: {score_status}")
 
 with kpi3:
     critical_count = int((filtered["statut"] == "CRITIQUE").sum()) if "statut" in filtered.columns else 0
@@ -630,20 +641,18 @@ with kpi3:
         value=critical_count,
         help="Véhicules avec panne détectée et probabilité ≥ 70%"
     )
-    st.caption("Statut: Action requise" if critical_count > 0 else "Statut: OK")
 
 with kpi4:
     if "type_panne_predit" in filtered.columns:
-        # Compter TOUS les véhicules avec panne détectée
-        pannes_count = int((filtered["type_panne_predit"] != 0).sum())
+        # Compter TOUS les véhicules avec panne prédite
+        interventions_count = int((filtered["type_panne_predit"] != 0).sum())
         st.metric(
-            label="🚨 Pannes Détectées",
-            value=pannes_count,
-            help="Nombre total de véhicules avec panne détectée par le ML"
+            label="🚨 Interventions",
+            value=interventions_count,
+            help="Nombre de véhicules nécessitant intervention (panne prédite par le ML)"
         )
-        st.caption("Statut: Intervention requise" if pannes_count > 0 else "Statut: OK")
     else:
-        st.metric("🚨 Pannes Détectées", "N/A")
+        st.metric("🚨 Interventions", "N/A")
 
 # Retirer la note confuse sur le chevauchement
 
