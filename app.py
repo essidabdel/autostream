@@ -2,7 +2,15 @@ import os
 import pandas as pd
 import streamlit as st
 
-from analytics import DATA_PATH, PANNE_DESCRIPTIONS, RECOMMANDATIONS, load_data
+from analytics import (
+    DATA_PATH,
+    PANNE_DESCRIPTIONS,
+    RECOMMANDATIONS,
+    get_gold_parquet_path,
+    load_aggregation,
+    load_data,
+    load_quality_report
+)
 
 # ============================================================================
 # CONFIGURATION DE LA PAGE
@@ -114,14 +122,15 @@ st.markdown("""
 # VÉRIFICATION DU FICHIER DE DONNÉES
 # ============================================================================
 
-if not os.path.exists(DATA_PATH):
-    st.error(f"❌ Fichier de données introuvable: {DATA_PATH}")
+gold_parquet_path = get_gold_parquet_path()
+if not gold_parquet_path:
+    st.error("❌ Fichier de données Parquet introuvable dans data/gold/parquet")
     st.info("💡 **Comment générer les données ?**")
-    st.code("python creation_data/pipeline_gold.py", language="bash")
+    st.code("python creation_data/pipeline_spark.py\npython creation_data/pipeline_gold.py", language="bash")
     st.stop()
 
 # Chargement des données
-df = load_data()
+df = load_data(gold_parquet_path)
 
 # ============================================================================
 # GUIDE D'UTILISATION RAPIDE (EXPANDABLE)
@@ -178,6 +187,60 @@ with st.expander("📖 Guide d'utilisation - Cliquez pour comprendre ce dashboar
     - **Seuil de probabilité** : Ajuster pour voir uniquement les cas à risque
     - **Vue Rapide** : Accès direct aux véhicules urgents
     """)
+
+st.markdown("---")
+
+# ============================================================================
+# SEPARATION BIG DATA VS IA
+# ============================================================================
+
+st.markdown("## 🧭 Sources d'Information : Donnees, Metier, IA")
+
+col_raw, col_business, col_ai = st.columns(3)
+
+with col_raw:
+    st.markdown("""
+    <div class="info-box">
+        <h4>📥 Donnees brutes</h4>
+        <p>Informations issues des sources et capteurs.</p>
+        <ul>
+            <li>Telemetrie OBD</li>
+            <li>Maintenance (dates, type, km)</li>
+            <li>Flotte (modele, annee)</li>
+        </ul>
+        <p><em>Pas de calcul, juste les valeurs de base.</em></p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_business:
+    st.markdown("""
+    <div class="success-box">
+        <h4>🧮 Calculs metier</h4>
+        <p>Regles deterministes basees sur les donnees.</p>
+        <ul>
+            <li>Score risque</li>
+            <li>Km depuis revision / echeance</li>
+            <li>Action requise</li>
+        </ul>
+        <p><em>Ce sont des regles fixes, sans IA.</em></p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_ai:
+    st.markdown("""
+    <div class="warning-box">
+        <h4>🤖 IA (Prediction ML)</h4>
+        <p>Resultats du modele de Machine Learning.</p>
+        <ul>
+            <li>Type de panne predit</li>
+            <li>Probabilite de panne</li>
+            <li>Statut (OK / ALERTE / CRITIQUE)</li>
+        </ul>
+        <p><em>C'est la partie predictive de l'application.</em></p>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("---")
 
 st.markdown("---")
 
@@ -287,6 +350,7 @@ if "prob_panne" in df.columns and "type_panne_predit" in df.columns:
                 <p><strong>{status}</strong></p>
                 <p><em>{nb_ok} véhicules OK sur {nb_total}</em></p>
                 <p><em>🔴 {nb_critiques} critiques | 🟠 {nb_alertes} alertes</em></p>
+                <p><em>Score risque borné à 100 pour une lecture plus claire</em></p>
             </div>
         """, unsafe_allow_html=True)
 
@@ -536,11 +600,11 @@ if "prob_panne" in filtered.columns and "panne_type_simple" in filtered.columns:
             "km_depuis_revis": "Km depuis révision",
             "action": "Action Requise"
         }
-        
+
         cols_to_show = [col for col in display_cols.keys() if col in priority_display.columns]
         priority_table = priority_display[cols_to_show].copy()
         priority_table.columns = [display_cols[col] for col in cols_to_show]
-        
+
         # Formatage des valeurs
         if "Probabilité" in priority_table.columns:
             priority_table["Probabilité"] = priority_table["Probabilité"].apply(lambda x: f"{x:.1%}")
@@ -552,7 +616,7 @@ if "prob_panne" in filtered.columns and "panne_type_simple" in filtered.columns:
             priority_table["Échéance (km)"] = priority_table["Échéance (km)"].apply(
                 lambda x: "⚠️ Immédiat" if pd.notna(x) and int(x) == 0 else (f"{int(x):,} km".replace(",", " ") if pd.notna(x) else "N/A")
             )
-        
+
         # Affichage du tableau
         st.dataframe(
             priority_table,
@@ -635,22 +699,19 @@ with st.expander("ℹ️ Comment utiliser ce tableau ?", expanded=False):
     - **Panne & Probabilité** : Ce que l'IA prédit
     - **Échéance (km)** : Distance estimée avant la panne probable (tranches de 250 km)
     - **Données OBD** : Températures, pressions, voltages en temps réel
-    - **Score Risque** : Évaluation globale du véhicule
     
     **💡 Astuce :** Cliquez sur les en-têtes de colonnes pour trier les données
     """)
 
-# Préparation des données
 display_data = filtered.copy()
 
 core_cols = ["alerte_emoji", "vin", "modele", "statut", "panne_emoji", "panne_type_simple", "prob_panne"]
 if "km_estime" in display_data.columns:
     core_cols.append("km_estime")
-    
-score_cols = ["score_risque"]
-obd_cols = ["temp_moteur", "pression_huile", "regime_moteur", "voltage_batterie", "km_actuel", "km_depuis_revis"]
 
-all_display_cols = core_cols + score_cols + obd_cols
+obd_cols = ["temp_moteur", "pression_huile", "voltage_batterie", "km_actuel", "km_depuis_revis"]
+
+all_display_cols = core_cols + obd_cols
 existing_cols = [col for col in all_display_cols if col in display_data.columns]
 
 table_display = display_data[existing_cols].copy()
@@ -898,7 +959,7 @@ col_info1, col_info2, col_info3 = st.columns(3)
 
 with col_info1:
     st.markdown("**📊 Source de Données**")
-    st.caption(f"Fichier: `{DATA_PATH}`")
+    st.caption(f"Fichier: `{gold_parquet_path}`")
     st.caption(f"Dernière analyse: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
     st.caption(f"Total véhicules: {len(df)}")
 

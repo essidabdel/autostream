@@ -1,12 +1,24 @@
 import json
-import pandas as pd
-import sqlite3
 import os
-from datetime import datetime, timedelta
 import random
+import sqlite3
+from datetime import datetime, timedelta
+
+import pandas as pd
 
 # Création des dossiers si besoin
-for path in ['data/bronze/json', 'data/bronze/csv', 'data/bronze/sql']:
+RUN_DATE = datetime.now().strftime("%Y-%m-%d")
+BRONZE_ROOT = "data/bronze"
+BRONZE_DATE_DIR = os.path.join(BRONZE_ROOT, f"run_date={RUN_DATE}")
+
+for path in [
+    os.path.join(BRONZE_ROOT, "json"),
+    os.path.join(BRONZE_ROOT, "csv"),
+    os.path.join(BRONZE_ROOT, "sql"),
+    os.path.join(BRONZE_DATE_DIR, "json"),
+    os.path.join(BRONZE_DATE_DIR, "csv"),
+    os.path.join(BRONZE_DATE_DIR, "sql")
+]:
     os.makedirs(path, exist_ok=True)
 
 vins = [f'VIN-75{1000+i}' for i in range(50)]
@@ -114,6 +126,11 @@ df_flotte = pd.DataFrame({
 df_flotte.to_sql('vehicules', conn, if_exists='replace', index=False)
 conn.close()
 
+# Copie dans le dossier date (bronze)
+conn = sqlite3.connect(os.path.join(BRONZE_DATE_DIR, "sql", "flotte.db"))
+df_flotte.to_sql('vehicules', conn, if_exists='replace', index=False)
+conn.close()
+
 # CSV
 maintenance = []
 types_maint = ['Vidange', 'Freins', 'Pneus', 'Moteur', 'Batterie']
@@ -154,6 +171,7 @@ for vin in vins:
     })
 
 pd.DataFrame(maintenance).to_csv('data/bronze/csv/maintenance.csv', index=False)
+pd.DataFrame(maintenance).to_csv(os.path.join(BRONZE_DATE_DIR, "csv", "maintenance.csv"), index=False)
 
 # JSON
 for i in range(50):
@@ -173,6 +191,8 @@ for i in range(50):
         'pression_injection': obd['pression_injection']
     }
     with open(f'data/bronze/json/msg_{i}.json', 'w') as f:
+        json.dump(telemetry, f)
+    with open(os.path.join(BRONZE_DATE_DIR, "json", f"msg_{i}.json"), 'w') as f:
         json.dump(telemetry, f)
 
 # CSV : Historique des Pannes
@@ -276,6 +296,7 @@ random.shuffle(historique)
 
 df_historique = pd.DataFrame(historique)
 df_historique.to_csv('data/bronze/csv/data_historique_pannes.csv', index=False)
+df_historique.to_csv(os.path.join(BRONZE_DATE_DIR, "csv", "data_historique_pannes.csv"), index=False)
 
 # CSV : Durée de vie des pièces
 type_map = {1: 'Batterie', 2: 'Moteur', 3: 'Freins', 4: 'Turbo', 5: 'Injecteur'}
@@ -292,6 +313,7 @@ stats_lifetime['km_min'] = stats_lifetime['km_min'].round().astype(int)
 stats_lifetime['km_max'] = stats_lifetime['km_max'].round().astype(int)
 stats_lifetime = stats_lifetime[['piece', 'km_median', 'km_min', 'km_max']]
 stats_lifetime.to_csv('data/bronze/csv/piece_lifetime.csv', index=False)
+stats_lifetime.to_csv(os.path.join(BRONZE_DATE_DIR, "csv", "piece_lifetime.csv"), index=False)
 
 print("✅ Étape 1 terminée : Les sources Bronze sont prêtes !")
 print(f"   - Flotte : {len(df_flotte)} véhicules")
@@ -299,3 +321,4 @@ print(f"   - Maintenance : {len(maintenance)} enregistrements")
 print(f"   - Télémétrie : 50 messages JSON")
 print(f"   - Historique pannes : {len(df_historique)} véhicules")
 print(f"   - Durée de vie pièces : {len(stats_lifetime)} types")
+print(f"   - Bronze daté : {BRONZE_DATE_DIR}")

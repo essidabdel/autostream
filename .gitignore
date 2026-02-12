@@ -27,10 +27,9 @@ ENV/
 Thumbs.db
 
 # Data folders
-/data/bronze/csv/
-/data/bronze/json/
-/data/bronze/sql/
-/data/silver/telemetry/
+/data/bronze
+/data/silver
+/data/gold
 
 # Ignore all data except gold reporting
 !/data/gold/reporting_final.csv

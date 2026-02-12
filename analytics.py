@@ -1,4 +1,6 @@
 import os
+from datetime import datetime
+
 import pandas as pd
 import streamlit as st
 
@@ -6,9 +8,11 @@ import streamlit as st
 # CONSTANTES ET MAPPINGS
 # ============================================================================
 
-DATA_PATH = os.path.join("data", "gold", "reporting_final.csv")
+DATA_PATH = os.path.join("data", "gold", "parquet")
 HISTORY_PATH = os.path.join("data_historique_pannes.csv")
 LIFETIME_PATH = os.path.join("data", "bronze", "csv", "piece_lifetime.csv")
+GOLD_AGG_PATH = os.path.join("data", "gold", "aggregations")
+QUALITY_PATH = os.path.join("data", "quality")
 
 PANNE_LABELS = {
     0: "OK - Aucune panne détectée",
@@ -180,15 +184,100 @@ def get_health_score(prob_panne):
     """Calcule un score de sante (0-100) inverse a la probabilite de panne"""
     return int((1 - prob_panne) * 100)
 
+
+def _get_latest_run_dir(base_dir):
+    if not os.path.exists(base_dir):
+        return None
+
+    candidates = []
+    for name in os.listdir(base_dir):
+        if not name.startswith("run_date="):
+            continue
+        date_str = name.replace("run_date=", "")
+        try:
+            run_date = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
+        candidates.append((run_date, os.path.join(base_dir, name)))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def get_gold_parquet_path():
+    latest_dir = _get_latest_run_dir(DATA_PATH)
+    if not latest_dir:
+        return None
+    parquet_path = os.path.join(latest_dir, "reporting_final.parquet")
+    return parquet_path if os.path.exists(parquet_path) else None
+
+
+def load_aggregation(kind):
+    prefix_map = {
+        "jour": "pannes_par_jour_",
+        "semaine": "pannes_par_semaine_",
+        "mois": "pannes_par_mois_"
+    }
+    prefix = prefix_map.get(kind)
+    if not prefix or not os.path.exists(GOLD_AGG_PATH):
+        return None
+
+    candidates = []
+    for name in os.listdir(GOLD_AGG_PATH):
+        if not (name.startswith(prefix) and name.endswith(".parquet")):
+            continue
+        date_str = name.replace(prefix, "").replace(".parquet", "")
+        try:
+            run_date = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
+        candidates.append((run_date, os.path.join(GOLD_AGG_PATH, name)))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return pd.read_parquet(candidates[0][1])
+
+
+def load_quality_report(layer):
+    prefix = "silver_quality_" if layer == "silver" else "gold_quality_"
+    if not os.path.exists(QUALITY_PATH):
+        return None
+
+    candidates = []
+    for name in os.listdir(QUALITY_PATH):
+        if not (name.startswith(prefix) and name.endswith(".csv")):
+            continue
+        date_str = name.replace(prefix, "").replace(".csv", "")
+        try:
+            run_date = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
+        candidates.append((run_date, os.path.join(QUALITY_PATH, name)))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return pd.read_csv(candidates[0][1])
+
 # ============================================================================
 # CHARGEMENT ET ENRICHISSEMENT DES DONNEES
 # ============================================================================
 
 
 @st.cache_data
-def load_data():
+def load_data(parquet_path=None):
     """Charge et enrichit les donnees avec cache pour performance"""
-    df = pd.read_csv(DATA_PATH)
+    parquet_file = parquet_path or get_gold_parquet_path()
+    if not parquet_file:
+        raise FileNotFoundError("Aucun fichier Parquet gold trouve.")
+
+    df = pd.read_parquet(parquet_file)
     lifetime_by_piece = load_piece_lifetime()
     type_map = {
         1: "Batterie",
