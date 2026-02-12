@@ -5,6 +5,10 @@ import os
 from datetime import datetime, timedelta
 import random
 
+# Ajout conso essence
+# 0-100
+# Pression injection
+
 # Création des dossiers si besoin
 for path in ['data/bronze/json', 'data/bronze/csv', 'data/bronze/sql']:
     os.makedirs(path, exist_ok=True)
@@ -15,13 +19,14 @@ modeles = ['Master', 'Expert', 'Daily', 'Sprinter', 'Transit']
 annees = list(range(2018, 2025))
 
 # Repartition cible des profils de pannes (sur 50 vehicules)
-# 40% OK, 15% Batterie, 15% Moteur, 20% Freins, 10% Turbo
+# Environ 68% OK (34 véhicules), 32% avec pannes (16 véhicules)
 profile_counts = {
-    'OK': 20,
-    'Batterie': 8,
-    'Moteur': 7,
-    'Freins': 10,
-    'Turbo': 5
+    'OK': 34,
+    'Batterie': 3,
+    'Moteur': 3,
+    'Freins': 4,
+    'Turbo': 3,
+    'Injecteur': 3
 }
 profiles = []
 for label, count in profile_counts.items():
@@ -38,6 +43,9 @@ def generate_obd_for_profile(profile):
         voltage_batterie = random.uniform(12.2, 14.5)
         km_actuel = random.randint(10000, 180000)
         km_depuis_revis = random.randint(1000, 20000)
+        temps_0_100 = random.uniform(8.0, 10.0)
+        conso_essence = random.uniform(6.0, 9.0)
+        pression_injection = random.uniform(280, 350)
     elif profile == 'Batterie':
         temp_moteur = random.uniform(85, 105)
         pression_huile = random.uniform(2.8, 4.5)
@@ -45,6 +53,9 @@ def generate_obd_for_profile(profile):
         voltage_batterie = random.uniform(10.5, 11.8)
         km_actuel = random.randint(20000, 220000)
         km_depuis_revis = random.randint(5000, 35000)
+        temps_0_100 = random.uniform(10.0, 12.0)
+        conso_essence = random.uniform(8.0, 12.0)
+        pression_injection = random.uniform(270, 340)
     elif profile == 'Moteur':
         temp_moteur = random.uniform(110, 125)
         pression_huile = random.uniform(1.8, 2.8)
@@ -52,6 +63,9 @@ def generate_obd_for_profile(profile):
         voltage_batterie = random.uniform(11.5, 14.0)
         km_actuel = random.randint(60000, 250000)
         km_depuis_revis = random.randint(20000, 50000)
+        temps_0_100 = random.uniform(14.0, 16.0)
+        conso_essence = random.uniform(11.0, 15.0)
+        pression_injection = random.uniform(260, 330)
     elif profile == 'Freins':
         temp_moteur = random.uniform(85, 105)
         pression_huile = random.uniform(2.5, 4.5)
@@ -59,13 +73,29 @@ def generate_obd_for_profile(profile):
         voltage_batterie = random.uniform(11.8, 14.5)
         km_actuel = random.randint(40000, 250000)
         km_depuis_revis = random.randint(35000, 50000)
-    else:  # Turbo
+        temps_0_100 = random.uniform(9.0, 11.0)
+        conso_essence = random.uniform(7.0, 11.0)
+        pression_injection = random.uniform(275, 345)
+    elif profile == 'Turbo':
         temp_moteur = random.uniform(95, 115)
         pression_huile = random.uniform(2.0, 3.2)
         regime_moteur = random.randint(3800, 5200)
         voltage_batterie = random.uniform(11.8, 14.5)
         km_actuel = random.randint(50000, 240000)
         km_depuis_revis = random.randint(15000, 45000)
+        temps_0_100 = random.uniform(13.0, 15.0)
+        conso_essence = random.uniform(12.0, 16.0)
+        pression_injection = random.uniform(250, 320)
+    else:  # Injecteur
+        temp_moteur = random.uniform(88, 108)
+        pression_huile = random.uniform(2.6, 4.2)
+        regime_moteur = random.randint(1000, 3500)
+        voltage_batterie = random.uniform(11.9, 14.2)
+        km_actuel = random.randint(40000, 230000)
+        km_depuis_revis = random.randint(25000, 50000)
+        temps_0_100 = random.uniform(11.0, 13.0)
+        conso_essence = random.uniform(13.0, 17.0)
+        pression_injection = random.uniform(200, 260)
 
     return {
         'temp_moteur': temp_moteur,
@@ -73,7 +103,10 @@ def generate_obd_for_profile(profile):
         'regime_moteur': regime_moteur,
         'voltage_batterie': voltage_batterie,
         'km_actuel': km_actuel,
-        'km_depuis_revis': km_depuis_revis
+        'km_depuis_revis': km_depuis_revis,
+        'temps_0_100': temps_0_100,
+        'conso_essence': conso_essence,
+        'pression_injection': pression_injection
     }
 
 # 1. SQL : Le Référentiel Flotte (La base stable)
@@ -106,8 +139,13 @@ for vin in vins:
     else:
         date = None
 
-    if profile in ['Freins', 'Moteur', 'Batterie', 'Turbo']:
-        type_maint = profile if profile != 'Turbo' else 'Moteur'
+    if profile in ['Freins', 'Moteur', 'Batterie', 'Turbo', 'Injecteur']:
+        if profile == 'Turbo':
+            type_maint = 'Moteur'
+        elif profile == 'Injecteur':
+            type_maint = 'Moteur'
+        else:
+            type_maint = profile
     else:
         type_maint = random.choice(types_maint)
 
@@ -134,20 +172,24 @@ for i in range(50):
         'km_actuel': obd['km_actuel'],
         'pression_huile': obd['pression_huile'],
         'regime_moteur': obd['regime_moteur'],
-        'voltage_batterie': obd['voltage_batterie']
+        'voltage_batterie': obd['voltage_batterie'],
+        'temps_0_100': obd['temps_0_100'],
+        'conso_essence': obd['conso_essence'],
+        'pression_injection': obd['pression_injection']
     }
     with open(f'data/bronze/json/msg_{i}.json', 'w') as f:
         json.dump(telemetry, f)
 
 # 4. CSV : Historique des Pannes (pour l'entraînement du modèle)
-# Repartition cible (200 lignes)
-# 40% OK, 15% Batterie, 15% Moteur, 20% Freins, 10% Turbo
+# Repartition cible (240 lignes) - Cohérent avec les proportions de la flotte
+# Environ 68% OK (163), 32% pannes (77 répartis sur 5 types)
 TARGET_COUNTS_HIST = {
-    0: 80,   # OK
-    1: 30,   # Batterie
-    2: 30,   # Moteur
-    3: 40,   # Freins
-    4: 20    # Turbo
+    0: 163,  # OK
+    1: 15,   # Batterie
+    2: 15,   # Moteur
+    3: 17,   # Freins
+    4: 15,   # Turbo
+    5: 15    # Injecteur
 }
 
 def generate_history_row(vin, type_panne):
@@ -159,6 +201,9 @@ def generate_history_row(vin, type_panne):
         voltage_batterie = random.uniform(12.2, 14.5)
         km_actuel = random.randint(10000, 180000)
         km_depuis_revis = random.randint(100, 20000)
+        temps_0_100 = random.uniform(8.0, 10.0)
+        conso_essence = random.uniform(6.0, 9.0)
+        pression_injection = random.uniform(280, 350)
     elif type_panne == 1:  # Batterie
         temp_moteur = random.uniform(85, 105)
         pression_huile = random.uniform(2.8, 4.5)
@@ -166,6 +211,9 @@ def generate_history_row(vin, type_panne):
         voltage_batterie = random.uniform(10.5, 11.8)
         km_actuel = random.randint(20000, 220000)
         km_depuis_revis = random.randint(5000, 35000)
+        temps_0_100 = random.uniform(10.0, 12.0)
+        conso_essence = random.uniform(8.0, 12.0)
+        pression_injection = random.uniform(270, 340)
     elif type_panne == 2:  # Moteur
         temp_moteur = random.uniform(110, 125)
         pression_huile = random.uniform(1.8, 2.8)
@@ -173,6 +221,9 @@ def generate_history_row(vin, type_panne):
         voltage_batterie = random.uniform(11.5, 14.0)
         km_actuel = random.randint(60000, 250000)
         km_depuis_revis = random.randint(20000, 50000)
+        temps_0_100 = random.uniform(14.0, 16.0)
+        conso_essence = random.uniform(11.0, 15.0)
+        pression_injection = random.uniform(260, 330)
     elif type_panne == 3:  # Freins
         temp_moteur = random.uniform(85, 105)
         pression_huile = random.uniform(2.5, 4.5)
@@ -180,13 +231,29 @@ def generate_history_row(vin, type_panne):
         voltage_batterie = random.uniform(11.8, 14.5)
         km_actuel = random.randint(40000, 250000)
         km_depuis_revis = random.randint(35000, 50000)
-    else:  # Turbo (type_panne == 4)
+        temps_0_100 = random.uniform(9.0, 11.0)
+        conso_essence = random.uniform(7.0, 11.0)
+        pression_injection = random.uniform(275, 345)
+    elif type_panne == 4:  # Turbo
         temp_moteur = random.uniform(95, 115)
         pression_huile = random.uniform(2.0, 3.2)
         regime_moteur = random.randint(3800, 5200)
         voltage_batterie = random.uniform(11.8, 14.5)
         km_actuel = random.randint(50000, 240000)
         km_depuis_revis = random.randint(15000, 45000)
+        temps_0_100 = random.uniform(13.0, 15.0)
+        conso_essence = random.uniform(12.0, 16.0)
+        pression_injection = random.uniform(250, 320)
+    else:  # Injecteur (type_panne == 5)
+        temp_moteur = random.uniform(88, 108)
+        pression_huile = random.uniform(2.6, 4.2)
+        regime_moteur = random.randint(1000, 3500)
+        voltage_batterie = random.uniform(11.9, 14.2)
+        km_actuel = random.randint(40000, 230000)
+        km_depuis_revis = random.randint(25000, 50000)
+        temps_0_100 = random.uniform(11.0, 13.0)
+        conso_essence = random.uniform(13.0, 17.0)
+        pression_injection = random.uniform(200, 260)
 
     return {
         'vin': vin,
@@ -196,6 +263,9 @@ def generate_history_row(vin, type_panne):
         'voltage_batterie': voltage_batterie,
         'km_actuel': km_actuel,
         'km_depuis_revis': km_depuis_revis,
+        'temps_0_100': temps_0_100,
+        'conso_essence': conso_essence,
+        'pression_injection': pression_injection,
         'type_panne': type_panne
     }
 
@@ -215,7 +285,7 @@ df_historique = pd.DataFrame(historique)
 df_historique.to_csv('data/bronze/csv/data_historique_pannes.csv', index=False)
 
 # 5. CSV : Durée de vie des pièces (calculée depuis l'historique)
-type_map = {1: 'Batterie', 2: 'Moteur', 3: 'Freins', 4: 'Turbo'}
+type_map = {1: 'Batterie', 2: 'Moteur', 3: 'Freins', 4: 'Turbo', 5: 'Injecteur'}
 df_hist_pannes = df_historique[df_historique['type_panne'].isin(type_map)].copy()
 df_hist_pannes['piece'] = df_hist_pannes['type_panne'].map(type_map)
 

@@ -53,7 +53,10 @@ def run_gold_layer():
         F.avg("km_actuel").alias("km_actuel"),
         F.avg("pression_huile").alias("pression_huile"),
         F.avg("regime_moteur").alias("regime_moteur"),
-        F.avg("voltage_batterie").alias("voltage_batterie")
+        F.avg("voltage_batterie").alias("voltage_batterie"),
+        F.avg("temps_0_100").alias("temps_0_100"),
+        F.avg("conso_essence").alias("conso_essence"),
+        F.avg("pression_injection").alias("pression_injection")
     )
 
     # B. Charger la Maintenance (Bronze CSV)
@@ -100,18 +103,18 @@ def run_gold_layer():
         model = pickle.load(f)
 
     # Prédictions (renommer temp_moyenne en temp_moteur pour le modèle)
-    features = df_gold_pandas[['temp_moyenne', 'pression_huile', 'regime_moteur', 'voltage_batterie', 'km_actuel', 'km_depuis_revis']]
+    features = df_gold_pandas[['temp_moyenne', 'pression_huile', 'regime_moteur', 'voltage_batterie', 'km_actuel', 'km_depuis_revis', 'temps_0_100', 'conso_essence', 'pression_injection']]
     features = features.rename(columns={'temp_moyenne': 'temp_moteur'})
     predictions = model.predict(features)
     proba_all = model.predict_proba(features)
     
     # Calculer prob_panne correctement :
-    # - Si prédiction = 0 (OK), prob_panne = probabilité de la MEILLEURE panne (max des classes 1-4)
+    # - Si prédiction = 0 (OK), prob_panne = probabilité de la MEILLEURE panne (max des classes 1-5)
     # - Sinon, prob_panne = probabilité de la classe prédite
     prob_panne = []
     for i, pred in enumerate(predictions):
         if pred == 0:  # Prédit OK
-            # Prendre la plus haute probabilité parmi les pannes (classes 1-4)
+            # Prendre la plus haute probabilité parmi les pannes (classes 1-5)
             prob_panne.append(proba_all[i, 1:].max())
         else:  # Prédit une panne
             # Prendre la probabilité de la classe prédite
@@ -120,6 +123,27 @@ def run_gold_layer():
     # Ajouter au dataframe
     df_gold_pandas['type_panne_predit'] = predictions
     df_gold_pandas['prob_panne'] = prob_panne
+    
+    # Recalculer le statut basé sur la prédiction ML (pas le score_risque métier)
+    # Si ML prédit OK (type 0), statut = OK
+    # Si ML prédit une panne, utiliser prob_panne pour déterminer l'urgence
+    def compute_ml_status(row):
+        type_panne = row['type_panne_predit']
+        prob = row['prob_panne']
+        
+        # Si ML prédit OK, le statut est OK
+        if int(type_panne) == 0:
+            return "OK"
+        
+        # Si ML prédit une panne, utiliser prob_panne pour urgence
+        if prob >= 0.7:
+            return "CRITIQUE"
+        elif prob >= 0.4:
+            return "ALERTE"
+        else:
+            return "SURVEILLANCE"
+    
+    df_gold_pandas['statut'] = df_gold_pandas.apply(compute_ml_status, axis=1)
     
     # --- 💾 SAUVEGARDE FINALE ---
     # Ecriture en Python pour contourner les problemes Hadoop NativeIO sur Windows

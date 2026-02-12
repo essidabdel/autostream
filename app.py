@@ -27,7 +27,8 @@ PANNE_LABELS = {
     1: "Panne Batterie", 
     2: "Panne Moteur", 
     3: "Panne Freins", 
-    4: "Panne Turbo"
+    4: "Panne Turbo",
+    5: "Panne Injecteur"
 }
 
 PANNE_EMOJIS = {
@@ -35,7 +36,8 @@ PANNE_EMOJIS = {
     1: "🔋",
     2: "🔥",
     3: "🛑",
-    4: "⚙️"
+    4: "⚙️",
+    5: "🧪"
 }
 
 PANNE_DESCRIPTIONS = {
@@ -43,6 +45,7 @@ PANNE_DESCRIPTIONS = {
     "Moteur": "Surchauffe ou problème mécanique majeur - Risque d'immobilisation",
     "Freins": "Usure des plaquettes ou problème hydraulique - Sécurité compromise",
     "Turbo": "Problème de suralimentation - Perte de puissance et consommation",
+    "Injecteur": "Pression d'injection faible - Surconsommation et perte de puissance",
     "OK": "Tous les systèmes fonctionnent normalement"
 }
 
@@ -70,6 +73,12 @@ RECOMMANDATIONS = {
         "🛢️ Vérifier pression et qualité de l'huile",
         "🌬️ Nettoyer le système d'admission d'air",
         "📈 Contrôler les durites et collecteurs"
+    ],
+    "Injecteur": [
+        "💉 Nettoyer ou remplacer les injecteurs",
+        "🔧 Vérifier la pression de la rampe d'injection",
+        "🧪 Tester la qualité du carburant",
+        "🔍 Contrôler les capteurs de débit et pression"
     ],
     "OK": [
         "✅ Continuer la maintenance préventive standard",
@@ -176,7 +185,8 @@ def load_data():
         1: "Batterie",
         2: "Moteur",
         3: "Freins",
-        4: "Turbo"
+        4: "Turbo",
+        5: "Injecteur"
     }
     
     # Normalisation des dates
@@ -387,20 +397,31 @@ if "prob_panne" in df.columns and "type_panne_predit" in df.columns:
     col_exec1, col_exec2, col_exec3 = st.columns(3)
     
     with col_exec1:
-        # Filtrer uniquement les vraies pannes et exclure les vehicules critiques
-        urgent = df[
-            (df["prob_panne"] >= 0.7)
-            & (df["type_panne_predit"] != 0)
-            & (df["statut"] != "CRITIQUE")
-        ]
-        if not urgent.empty:
-            top_urgent = urgent.nlargest(1, "prob_panne").iloc[0]
+        # Trouver le véhicule le PLUS critique parmi TOUS les véhicules avec panne
+        vehicles_with_panne = df[df["type_panne_predit"] != 0]
+        
+        if not vehicles_with_panne.empty:
+            # Trier par probabilité décroissante
+            top_critical = vehicles_with_panne.nlargest(1, "prob_panne").iloc[0]
+            
+            # Déterminer la couleur selon le statut
+            if top_critical['statut'] == "CRITIQUE":
+                box_class = "danger-box"
+                icon = "🔴"
+            elif top_critical['statut'] == "ALERTE":
+                box_class = "warning-box"
+                icon = "🟠"
+            else:
+                box_class = "info-box"
+                icon = "🟡"
+            
             st.markdown(f"""
-                <div class="danger-box">
-                    <h3>🚨 VÉHICULE LE PLUS CRITIQUE</h3>
-                    <p><strong>VIN :</strong> {top_urgent['vin']}</p>
-                    <p><strong>Type :</strong> {top_urgent.get('panne_type_simple', 'N/A')}</p>
-                    <p><strong>Probabilité :</strong> {top_urgent['prob_panne']:.0%}</p>
+                <div class="{box_class}">
+                    <h3>{icon} VÉHICULE LE PLUS CRITIQUE</h3>
+                    <p><strong>VIN :</strong> {top_critical['vin']}</p>
+                    <p><strong>Type :</strong> {top_critical.get('panne_type_simple', 'N/A')}</p>
+                    <p><strong>Probabilité :</strong> {top_critical['prob_panne']:.0%}</p>
+                    <p><strong>Statut :</strong> {top_critical['statut']}</p>
                     <p><em>⚠️ Action immédiate requise !</em></p>
                 </div>
             """, unsafe_allow_html=True)
@@ -408,7 +429,7 @@ if "prob_panne" in df.columns and "type_panne_predit" in df.columns:
             st.markdown("""
                 <div class="success-box">
                     <h3>✅ STATUT EXCELLENT</h3>
-                    <p>Aucune panne critique détectée</p>
+                    <p>Aucune panne détectée par le modèle ML</p>
                     <p><em>Continuez la maintenance préventive</em></p>
                 </div>
             """, unsafe_allow_html=True)
@@ -436,12 +457,19 @@ if "prob_panne" in df.columns and "type_panne_predit" in df.columns:
             """, unsafe_allow_html=True)
     
     with col_exec3:
-        avg_health = (1 - df["prob_panne"].mean()) * 100
-        if avg_health >= 80:
+        # Calculer santé basée sur le % de véhicules OK
+        nb_ok = len(df[df["type_panne_predit"] == 0])
+        nb_total = len(df)
+        health_percentage = (nb_ok / nb_total) * 100 if nb_total > 0 else 0
+        
+        nb_critiques = len(df[df["statut"] == "CRITIQUE"])
+        nb_alertes = len(df[df["statut"] == "ALERTE"])
+        
+        if health_percentage >= 70:
             box_class = "success-box"
             icon = "💚"
             status = "EXCELLENT"
-        elif avg_health >= 60:
+        elif health_percentage >= 50:
             box_class = "warning-box"
             icon = "💛"
             status = "ACCEPTABLE"
@@ -453,9 +481,10 @@ if "prob_panne" in df.columns and "type_panne_predit" in df.columns:
         st.markdown(f"""
             <div class="{box_class}">
                 <h3>{icon} SANTÉ GLOBALE FLOTTE</h3>
-                <p style="font-size: 2rem; font-weight: bold; margin: 0.5rem 0;">{avg_health:.1f}%</p>
+                <p style="font-size: 2rem; font-weight: bold; margin: 0.5rem 0;">{health_percentage:.1f}%</p>
                 <p><strong>{status}</strong></p>
-                <p><em>Score basé sur {len(df)} véhicules</em></p>
+                <p><em>{nb_ok} véhicules OK sur {nb_total}</em></p>
+                <p><em>🔴 {nb_critiques} critiques | 🟠 {nb_alertes} alertes</em></p>
             </div>
         """, unsafe_allow_html=True)
 
@@ -562,10 +591,12 @@ with st.expander("ℹ️ Comment interpréter ces indicateurs ?", expanded=False
     Ces 5 indicateurs résument l'état de votre flotte :
     
     - **🚗 Véhicules** : Nombre de véhicules dans la sélection actuelle
-    - **⚠️ Score Risque Moyen** : Plus il est élevé, plus la flotte nécessite attention (basé sur km, âge, etc.)
-    - **🔴 Statuts Critiques** : Véhicules déjà identifiés comme critiques par le système
-    - **🚨 Pannes Urgentes** : Véhicules avec ≥70% de probabilité de panne (intervention sous 48h)
+    - **⚠️ Score Risque Moyen** : Score métier basé sur température et âge (informatif uniquement)
+    - **🔴 Critiques** : Véhicules avec panne détectée ET probabilité ≥ 70% → **Action immédiate**
+    - **🚨 Pannes Détectées** : Nombre TOTAL de véhicules avec panne détectée par le ML (inclut critiques + alertes)
     - **📍 Km Moyen** : Kilométrage moyen de la flotte (indicateur d'usure)
+    
+    **Note :** Le statut (OK/ALERTE/CRITIQUE) est désormais basé sur la prédiction ML, pas sur le score risque métier.
     """)
 
 kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
@@ -597,30 +628,24 @@ with kpi3:
     st.metric(
         label="🔴 Critiques",
         value=critical_count,
-        help="Nombre de vehicules en statut CRITIQUE (score_risque)"
+        help="Véhicules avec panne détectée et probabilité ≥ 70%"
     )
     st.caption("Statut: Action requise" if critical_count > 0 else "Statut: OK")
 
 with kpi4:
-    if "prob_panne" in filtered.columns and "type_panne_predit" in filtered.columns:
-        # Compter uniquement les pannes urgentes non-critiques pour eviter le chevauchement
-        urgent_count = int(
-            ((filtered["prob_panne"] >= 0.7)
-             & (filtered["type_panne_predit"] != 0)
-             & (filtered["statut"] != "CRITIQUE")).sum()
-        )
+    if "type_panne_predit" in filtered.columns:
+        # Compter TOUS les véhicules avec panne détectée
+        pannes_count = int((filtered["type_panne_predit"] != 0).sum())
         st.metric(
-            label="🚨 Pannes Urgentes (hors critiques)",
-            value=urgent_count,
-            help="Vehicules avec probabilite >=70% de panne imminente (ML)"
+            label="🚨 Pannes Détectées",
+            value=pannes_count,
+            help="Nombre total de véhicules avec panne détectée par le ML"
         )
-        st.caption("Statut: Intervention immediate" if urgent_count > 0 else "Statut: OK")
+        st.caption("Statut: Intervention requise" if pannes_count > 0 else "Statut: OK")
     else:
-        st.metric("🚨 Pannes Urgentes", "N/A")
+        st.metric("🚨 Pannes Détectées", "N/A")
 
-st.caption(
-    "Note: 'Critiques' et 'Pannes urgentes (hors critiques)' sont maintenant exclusifs pour eviter le chevauchement."
-)
+# Retirer la note confuse sur le chevauchement
 
 with kpi5:
     if "km_actuel" in filtered.columns:
@@ -644,8 +669,13 @@ st.markdown("## 🚨 Liste de Maintenance Prioritaire")
 st.markdown("""
 <div class="info-box">
     <h4>📋 À quoi sert cette section ?</h4>
-    <p>Cette liste affiche les véhicules nécessitant une <strong>intervention urgente</strong> (probabilité ≥ 70% ET type de panne identifié).</p>
-    <p><strong>Note importante :</strong> Les véhicules avec statut "OK" ne sont pas affichés ici, même si leur probabilité est élevée, car ils ne présentent pas de risque de panne immédiate selon le modèle.</p>
+    <p>Cette liste affiche <strong>TOUS les véhicules nécessitant attention</strong> :</p>
+    <ul>
+        <li>🔴 <strong>CRITIQUES</strong> : Probabilité ≥ 70% de panne détectée</li>
+        <li>🟠 <strong>ALERTES</strong> : Probabilité 40-70% de panne détectée</li>
+        <li>🟡 <strong>SURVEILLANCE</strong> : Probabilité &lt; 40% mais panne détectée</li>
+    </ul>
+    <p><strong>Note importante :</strong> Seuls les véhicules avec une panne détectée sont affichés (les véhicules "OK" sont exclus).</p>
     <p><strong>Utilisez-la pour :</strong></p>
     <ul>
         <li>📅 Planifier les rendez-vous atelier en priorité</li>
@@ -657,17 +687,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if "prob_panne" in filtered.columns and "panne_type_simple" in filtered.columns:
-    # Filtrer les pannes urgentes en excluant les vehicules OK et critiques
+    # Filtrer TOUS les véhicules avec panne détectée (exclure uniquement les OK)
     urgent = filtered[
-        (filtered["prob_panne"] >= 0.7)
-        & (filtered["type_panne_predit"] != 0)
-        & (filtered["statut"] != "CRITIQUE")
+        (filtered["type_panne_predit"] != 0)  # Exclure uniquement les véhicules OK
     ].copy()
     
     if not urgent.empty:
-        st.markdown(f"### 🔴 {len(urgent)} véhicule(s) en intervention urgente")
+        # Compter par catégorie
+        nb_critiques = len(urgent[urgent["statut"] == "CRITIQUE"])
+        nb_alertes = len(urgent[urgent["statut"] == "ALERTE"])
+        nb_surveillance = len(urgent[urgent["statut"] == "SURVEILLANCE"])
         
-        urgent_sorted = urgent.sort_values("prob_panne", ascending=False)
+        st.markdown(f"### 🔴 {len(urgent)} véhicule(s) nécessitant attention")
+        st.caption(f"Répartition : {nb_critiques} critiques 🔴 | {nb_alertes} alertes 🟠 | {nb_surveillance} surveillance 🟡")
+        
+        urgent_sorted = urgent.sort_values(["statut", "prob_panne"], ascending=[True, False])
         
         # Légende du tableau
         with st.expander("📖 Légende des colonnes du tableau", expanded=False):
@@ -698,6 +732,7 @@ if "prob_panne" in filtered.columns and "panne_type_simple" in filtered.columns:
             "alerte_emoji": "🚦",
             "vin": "VIN",
             "modele": "Modèle",
+            "statut": "Statut",
             "panne_emoji": "🔧",
             "panne_type_simple": "Panne",
             "prob_panne": "Probabilité",
@@ -782,8 +817,8 @@ if "prob_panne" in filtered.columns and "panne_type_simple" in filtered.columns:
     else:
         st.markdown("""
             <div class="success-box">
-                <h3>✅ Excellent ! Aucune maintenance urgente</h3>
-                <p>Tous vos véhicules sont dans les normes de sécurité.</p>
+                <h3>✅ Excellent ! Aucune panne détectée</h3>
+                <p>Tous vos véhicules sont prédits comme étant en bon état (statut OK).</p>
                 <p><strong>Recommandation :</strong> Continuez la maintenance préventive régulière.</p>
             </div>
         """, unsafe_allow_html=True)
