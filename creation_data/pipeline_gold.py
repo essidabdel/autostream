@@ -1,7 +1,6 @@
 import os
 import sys
-import glob
-import shutil
+import pickle
 import csv
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -88,20 +87,37 @@ def run_gold_layer():
         .otherwise("OK"))
 
     print("✅ Agrégations et jointures Spark terminées.")
+
+    # Ajouter km_depuis_revis
+    df_gold = df_gold.withColumn("km_depuis_revis", 
+        F.col("km_actuel") - F.col("km_derniere_revis"))
+
+    # Convertir en pandas pour ML
+    df_gold_pandas = df_gold.toPandas()
+
+    # Charger le modèle
+    with open('model_pannes.pkl', 'rb') as f:
+        model = pickle.load(f)
+
+    # Prédictions (renommer temp_moyenne en temp_moteur pour le modèle)
+    features = df_gold_pandas[['temp_moyenne', 'pression_huile', 'regime_moteur', 'voltage_batterie', 'km_actuel', 'km_depuis_revis']]
+    features = features.rename(columns={'temp_moyenne': 'temp_moteur'})
+    predictions = model.predict(features)
+    proba = model.predict_proba(features).max(axis=1)
+
+    # Ajouter au dataframe
+    df_gold_pandas['type_panne_predit'] = predictions
+    df_gold_pandas['prob_panne'] = proba
     
     # --- 💾 SAUVEGARDE FINALE ---
     # Ecriture en Python pour contourner les problemes Hadoop NativeIO sur Windows
     os.makedirs("data/gold", exist_ok=True)
     final_path = "data/gold/reporting_final.csv"
 
-    with open(final_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(df_gold.columns)
-        for row in df_gold.toLocalIterator():
-            writer.writerow(list(row))
+    df_gold_pandas.to_csv(final_path, index=False)
     
     print("✨ Rapport final généré dans data/gold/reporting_final.csv")
-    df_gold.select("vin", "modele", "score_risque", "statut").show(5)
+    print(df_gold_pandas[["vin", "modele", "score_risque", "statut", "type_panne_predit", "prob_panne"]].head(5))
 
 if __name__ == "__main__":
     run_gold_layer()
