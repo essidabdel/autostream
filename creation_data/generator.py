@@ -5,10 +5,6 @@ import os
 from datetime import datetime, timedelta
 import random
 
-# Ajout conso essence
-# 0-100
-# Pression injection
-
 # Création des dossiers si besoin
 for path in ['data/bronze/json', 'data/bronze/csv', 'data/bronze/sql']:
     os.makedirs(path, exist_ok=True)
@@ -19,7 +15,6 @@ modeles = ['Master', 'Expert', 'Daily', 'Sprinter', 'Transit']
 annees = list(range(2018, 2025))
 
 # Repartition cible des profils de pannes (sur 50 vehicules)
-# Environ 68% OK (34 véhicules), 32% avec pannes (16 véhicules)
 profile_counts = {
     'OK': 34,
     'Batterie': 3,
@@ -109,7 +104,7 @@ def generate_obd_for_profile(profile):
         'pression_injection': pression_injection
     }
 
-# 1. SQL : Le Référentiel Flotte (La base stable)
+# SQL
 conn = sqlite3.connect('data/bronze/sql/flotte.db')
 df_flotte = pd.DataFrame({
     'vin': vins,
@@ -119,20 +114,20 @@ df_flotte = pd.DataFrame({
 df_flotte.to_sql('vehicules', conn, if_exists='replace', index=False)
 conn.close()
 
-# 2. CSV : Historique Maintenance (avec cohérence par profil)
+# CSV
 maintenance = []
 types_maint = ['Vidange', 'Freins', 'Pneus', 'Moteur', 'Batterie']
 
-# Pre-calcul des donnees OBD par VIN pour garder la coherence maintenance/telemetrie
+# Pre-calcul
 obd_by_vin = {vin: generate_obd_for_profile(profile_by_vin[vin]) for vin in vins}
 
 for vin in vins:
     profile = profile_by_vin[vin]
     obd = obd_by_vin[vin]
 
-    has_date = random.random() > 0.15  # 85% ont une date
+    has_date = random.random() > 0.15
     if has_date:
-        # Approximation de la date selon le km depuis revision
+        # Approximation de la date
         days_since = int(obd['km_depuis_revis'] / 50)
         days_since = max(30, min(days_since, 1200))
         date = (datetime.now() - timedelta(days=days_since)).strftime('%Y-%m-%d')
@@ -160,12 +155,12 @@ for vin in vins:
 
 pd.DataFrame(maintenance).to_csv('data/bronze/csv/maintenance.csv', index=False)
 
-# 3. JSON : Flux IoT Télémétrie (Simule 50 messages pour les 50 véhicules)
+# JSON
 for i in range(50):
     vin = vins[i]
     obd = obd_by_vin[vin]
     telemetry = {
-        'vin': vin,  # Un message par véhicule
+        'vin': vin,
         'timestamp': (datetime.now() - timedelta(minutes=i)).isoformat(),
         'temp_moteur': obd['temp_moteur'],
         'vitesse': random.randint(70, 110),
@@ -180,9 +175,7 @@ for i in range(50):
     with open(f'data/bronze/json/msg_{i}.json', 'w') as f:
         json.dump(telemetry, f)
 
-# 4. CSV : Historique des Pannes (pour l'entraînement du modèle)
-# Repartition cible (240 lignes) - Cohérent avec les proportions de la flotte
-# Environ 68% OK (163), 32% pannes (77 répartis sur 5 types)
+# CSV : Historique des Pannes
 TARGET_COUNTS_HIST = {
     0: 163,  # OK
     1: 15,   # Batterie
@@ -244,7 +237,7 @@ def generate_history_row(vin, type_panne):
         temps_0_100 = random.uniform(13.0, 15.0)
         conso_essence = random.uniform(12.0, 16.0)
         pression_injection = random.uniform(250, 320)
-    else:  # Injecteur (type_panne == 5)
+    else:  # Injecteur
         temp_moteur = random.uniform(88, 108)
         pression_huile = random.uniform(2.6, 4.2)
         regime_moteur = random.randint(1000, 3500)
@@ -269,7 +262,7 @@ def generate_history_row(vin, type_panne):
         'type_panne': type_panne
     }
 
-# Génération de l'historique de 200 véhicules avec répartition contrôlée
+# Génération de l'historique
 historique = []
 index = 0
 for type_panne, count in TARGET_COUNTS_HIST.items():
@@ -278,13 +271,13 @@ for type_panne, count in TARGET_COUNTS_HIST.items():
         historique.append(generate_history_row(vin, type_panne))
         index += 1
 
-# Mélanger pour éviter les blocs par classe
+# Mélanger
 random.shuffle(historique)
 
 df_historique = pd.DataFrame(historique)
 df_historique.to_csv('data/bronze/csv/data_historique_pannes.csv', index=False)
 
-# 5. CSV : Durée de vie des pièces (calculée depuis l'historique)
+# CSV : Durée de vie des pièces
 type_map = {1: 'Batterie', 2: 'Moteur', 3: 'Freins', 4: 'Turbo', 5: 'Injecteur'}
 df_hist_pannes = df_historique[df_historique['type_panne'].isin(type_map)].copy()
 df_hist_pannes['piece'] = df_hist_pannes['type_panne'].map(type_map)

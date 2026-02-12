@@ -5,7 +5,6 @@ import sys
 def run_script(script_name):
     print(f"--- Exécution de {script_name} ---")
     try:
-        # Utilise sys.executable pour être sûr d'utiliser le bon Python
         subprocess.run([sys.executable, script_name], check=True)
         print(f"✅ {script_name} terminé avec succès.\n")
     except subprocess.CalledProcessError as e:
@@ -15,13 +14,13 @@ def run_script(script_name):
 if __name__ == "__main__":
     print("🚀 DÉMARRAGE DU PIPELINE AUTOSTREAM\n")
     
-    # Étape 1 : Simulation des sources (Bronze)
+    # Simulation des sources (Bronze)
     run_script("creation_data/generator.py")
     
-    # Étape 2 : Nettoyage Spark (Silver)
+    # Nettoyage Spark (Silver)
     run_script("creation_data/pipeline_spark.py")
     
-    # Étape 3 : Calcul métier et Score S (Gold)
+    # Calcul métier et Score S (Gold)
     run_script("creation_data/pipeline_gold.py")
     
     print("✨ TOUTES LES ÉTAPES SONT TERMINÉES.")
