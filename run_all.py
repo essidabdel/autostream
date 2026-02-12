@@ -16,13 +16,13 @@ if __name__ == "__main__":
     print("🚀 DÉMARRAGE DU PIPELINE AUTOSTREAM\n")
     
     # Étape 1 : Simulation des sources (Bronze)
-    run_script("generator.py")
+    run_script("creation_data/generator.py")
     
     # Étape 2 : Nettoyage Spark (Silver)
-    run_script("pipeline_spark.py")
+    run_script("creation_data/pipeline_spark.py")
     
     # Étape 3 : Calcul métier et Score S (Gold)
-    run_script("pipeline_gold.py")
+    run_script("creation_data/pipeline_gold.py")
     
     print("✨ TOUTES LES ÉTAPES SONT TERMINÉES.")
     print("📊 Les résultats finaux sont dans : data/gold/reporting_final.csv")

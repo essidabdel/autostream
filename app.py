@@ -19,6 +19,8 @@ st.set_page_config(
 # ============================================================================
 
 DATA_PATH = os.path.join("data", "gold", "reporting_final.csv")
+HISTORY_PATH = os.path.join("data_historique_pannes.csv")
+LIFETIME_PATH = os.path.join("data", "bronze", "csv", "piece_lifetime.csv")
 
 PANNE_LABELS = {
     0: "OK - Aucune panne détectée", 
@@ -101,20 +103,61 @@ def get_alert_emoji(level):
     }
     return emojis.get(level, "⚪")
 
-def estimate_days_to_failure(km_depuis_revis, prob):
+def estimate_km_to_failure(row, lifetime_by_piece, type_map):
     """
-    Estime le délai avant panne probable
-    Basé sur: kilométrage depuis révision + probabilité de panne
-    Hypothèse: moyenne de 50 km/jour par véhicule
+    Estime l'echeance avant panne probable en kilometres.
+    Basee sur la duree de vie des pieces (piece_lifetime.csv).
+    Pour les vehicules OK (type_panne=0), retourne 30000 km (prochaine revision).
+    Affiche en tranches de 250 km pour une lecture stable.
     """
-    if prob < 0.5:
-        return None  # Pas assez de risque pour estimer
+    km_depuis_revis = row.get("km_depuis_revis")
+    type_panne = row.get("type_panne_predit")
+    type_maint = row.get("type")
+
+    if pd.isna(km_depuis_revis):
+        return None
+
+    # Si prediction OK (type_panne=0), échéance = prochaine révision (30 000 km)
+    if pd.notna(type_panne) and int(type_panne) == 0:
+        return 30000
+
+    if lifetime_by_piece is None:
+        return None
+
+    # Priorite au type de panne predit si disponible, sinon type maintenance
+    piece = None
+    if pd.notna(type_panne) and int(type_panne) in type_map:
+        piece = type_map[int(type_panne)]
+    elif pd.notna(type_maint):
+        piece = str(type_maint).strip()
+
+    if not piece:
+        return None
+
+    km_median = lifetime_by_piece.get(piece)
+    if km_median is None or pd.isna(km_median):
+        return None
+
+    km_restant = int(km_median - km_depuis_revis)
     
-    # Plus de km + haute probabilité = plus urgent
-    km_restant_estime = max(0, 5000 - km_depuis_revis) * (1 - prob)
-    jours = int(km_restant_estime / 50)
-    
-    return max(1, jours)  # Minimum 1 jour
+    # Si la pièce a dépassé sa durée de vie: intervention IMMÉDIATE (0 km)
+    if km_restant <= 0:
+        return 0
+
+    # Arrondir a la tranche de 250 km superieure
+    tranche = int(((km_restant + 249) // 250) * 250)
+    return tranche
+
+def load_piece_lifetime():
+    """Charge la duree de vie des pieces (km_median) depuis le CSV."""
+    if not os.path.exists(LIFETIME_PATH):
+        return None
+
+    df_life = pd.read_csv(LIFETIME_PATH)
+    if "piece" not in df_life.columns or "km_median" not in df_life.columns:
+        return None
+
+    return dict(zip(df_life["piece"], df_life["km_median"]))
 
 def get_health_score(prob_panne):
     """Calcule un score de santé (0-100) inverse à la probabilité de panne"""
@@ -128,6 +171,13 @@ def get_health_score(prob_panne):
 def load_data():
     """Charge et enrichit les données avec cache pour performance"""
     df = pd.read_csv(DATA_PATH)
+    lifetime_by_piece = load_piece_lifetime()
+    type_map = {
+        1: "Batterie",
+        2: "Moteur",
+        3: "Freins",
+        4: "Turbo"
+    }
     
     # Normalisation des dates
     if "date_last_revis" in df.columns:
@@ -145,9 +195,9 @@ def load_data():
         df["alerte_emoji"] = df["alerte"].apply(get_alert_emoji)
         df["sante"] = df["prob_panne"].apply(get_health_score)
     
-    if "km_depuis_revis" in df.columns and "prob_panne" in df.columns:
-        df["jours_estime"] = df.apply(
-            lambda row: estimate_days_to_failure(row["km_depuis_revis"], row["prob_panne"]), 
+    if "km_depuis_revis" in df.columns:
+        df["km_estime"] = df.apply(
+            lambda row: estimate_km_to_failure(row, lifetime_by_piece, type_map),
             axis=1
         )
     
@@ -290,7 +340,7 @@ with st.expander("📖 Guide d'utilisation - Cliquez pour comprendre ce dashboar
     3. **Prédiction** : Le système calcule :
        - Le **type de panne** probable (Batterie, Moteur, Freins, Turbo)
        - La **probabilité** que cette panne arrive (0-100%)
-       - Le **délai estimé** avant la panne
+         - L'**échéance estimée (km)** avant la panne
     
     ---
     
@@ -337,8 +387,12 @@ if "prob_panne" in df.columns and "type_panne_predit" in df.columns:
     col_exec1, col_exec2, col_exec3 = st.columns(3)
     
     with col_exec1:
-        # Filtrer uniquement les vraies pannes (exclure type=0 qui est OK)
-        urgent = df[(df["prob_panne"] >= 0.7) & (df["type_panne_predit"] != 0)]
+        # Filtrer uniquement les vraies pannes et exclure les vehicules critiques
+        urgent = df[
+            (df["prob_panne"] >= 0.7)
+            & (df["type_panne_predit"] != 0)
+            & (df["statut"] != "CRITIQUE")
+        ]
         if not urgent.empty:
             top_urgent = urgent.nlargest(1, "prob_panne").iloc[0]
             st.markdown(f"""
@@ -522,44 +576,51 @@ with kpi1:
     st.metric(
         label="🚗 Véhicules",
         value=nb_vehicules,
-        delta=f"{nb_vehicules}/{total_vehicules} affichés" if nb_vehicules < total_vehicules else "Tous",
         help="Nombre de véhicules dans la sélection actuelle"
+    )
+    st.caption(
+        f"Affiches: {nb_vehicules}/{total_vehicules}" if nb_vehicules < total_vehicules else "Affiches: Tous"
     )
 
 with kpi2:
     avg_score = filtered["score_risque"].mean() if "score_risque" in filtered.columns else 0
     score_status = "🔴 Élevé" if avg_score > 70 else "🟢 Acceptable"
     st.metric(
-        label="⚠️ Score Risque",
-        value=f"{avg_score:.1f}/100",
-        delta=score_status,
-        delta_color="inverse" if avg_score > 70 else "normal",
-        help="Score de risque moyen calculé sur base des facteurs: km, âge, maintenance"
+        label="⚠️ Score Risque (moyen)",
+        value=f"{avg_score:.1f}",
+        help="Indice de risque moyen calcule a partir des facteurs: km, age, maintenance"
     )
+    st.caption(f"Statut: {score_status}")
 
 with kpi3:
     critical_count = int((filtered["statut"] == "CRITIQUE").sum()) if "statut" in filtered.columns else 0
     st.metric(
         label="🔴 Critiques",
         value=critical_count,
-        delta="Action requise !" if critical_count > 0 else "✅ Aucun",
-        delta_color="inverse" if critical_count > 0 else "normal",
-        help="Nombre de véhicules en statut CRITIQUE"
+        help="Nombre de vehicules en statut CRITIQUE (score_risque)"
     )
+    st.caption("Statut: Action requise" if critical_count > 0 else "Statut: OK")
 
 with kpi4:
     if "prob_panne" in filtered.columns and "type_panne_predit" in filtered.columns:
-        # Compter uniquement les vraies pannes urgentes (exclure OK)
-        urgent_count = int(((filtered["prob_panne"] >= 0.7) & (filtered["type_panne_predit"] != 0)).sum())
-        st.metric(
-            label="🚨 Pannes Urgentes",
-            value=urgent_count,
-            delta="Intervention immédiate" if urgent_count > 0 else "✅ Aucune",
-            delta_color="inverse" if urgent_count > 0 else "normal",
-            help="Véhicules avec probabilité ≥70% de panne imminente"
+        # Compter uniquement les pannes urgentes non-critiques pour eviter le chevauchement
+        urgent_count = int(
+            ((filtered["prob_panne"] >= 0.7)
+             & (filtered["type_panne_predit"] != 0)
+             & (filtered["statut"] != "CRITIQUE")).sum()
         )
+        st.metric(
+            label="🚨 Pannes Urgentes (hors critiques)",
+            value=urgent_count,
+            help="Vehicules avec probabilite >=70% de panne imminente (ML)"
+        )
+        st.caption("Statut: Intervention immediate" if urgent_count > 0 else "Statut: OK")
     else:
         st.metric("🚨 Pannes Urgentes", "N/A")
+
+st.caption(
+    "Note: 'Critiques' et 'Pannes urgentes (hors critiques)' sont maintenant exclusifs pour eviter le chevauchement."
+)
 
 with kpi5:
     if "km_actuel" in filtered.columns:
@@ -596,8 +657,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if "prob_panne" in filtered.columns and "panne_type_simple" in filtered.columns:
-    # Filtrer les pannes urgentes en excluant les véhicules OK
-    urgent = filtered[(filtered["prob_panne"] >= 0.7) & (filtered["type_panne_predit"] != 0)].copy()
+    # Filtrer les pannes urgentes en excluant les vehicules OK et critiques
+    urgent = filtered[
+        (filtered["prob_panne"] >= 0.7)
+        & (filtered["type_panne_predit"] != 0)
+        & (filtered["statut"] != "CRITIQUE")
+    ].copy()
     
     if not urgent.empty:
         st.markdown(f"### 🔴 {len(urgent)} véhicule(s) en intervention urgente")
@@ -613,7 +678,7 @@ if "prob_panne" in filtered.columns and "panne_type_simple" in filtered.columns:
             - **🔧 Type** : Icône du type de panne prédit
             - **Panne** : Description du type de défaillance anticipée
             - **Probabilité** : Confiance de l'IA dans sa prédiction (plus élevé = plus certain)
-            - **Délai** : Estimation du nombre de jours avant panne probable
+            - **Échéance (km)** : Estimation en tranches de 250 km avant panne probable
             - **Km** : Kilométrage total actuel du véhicule
             - **Km depuis révision** : Distance parcourue depuis dernier entretien
             - **Action Requise** : Recommandation technique spécifique
@@ -636,7 +701,7 @@ if "prob_panne" in filtered.columns and "panne_type_simple" in filtered.columns:
             "panne_emoji": "🔧",
             "panne_type_simple": "Panne",
             "prob_panne": "Probabilité",
-            "jours_estime": "Délai (jours)",
+            "km_estime": "Échéance (km)",
             "km_actuel": "Km Total",
             "km_depuis_revis": "Km depuis révision",
             "action": "Action Requise"
@@ -653,9 +718,9 @@ if "prob_panne" in filtered.columns and "panne_type_simple" in filtered.columns:
             priority_table["Km Total"] = priority_table["Km Total"].apply(lambda x: f"{int(x):,}".replace(",", " "))
         if "Km depuis révision" in priority_table.columns:
             priority_table["Km depuis révision"] = priority_table["Km depuis révision"].apply(lambda x: f"{int(x):,}".replace(",", " "))
-        if "Délai (jours)" in priority_table.columns:
-            priority_table["Délai (jours)"] = priority_table["Délai (jours)"].apply(
-                lambda x: f"⚠️ {x}j" if pd.notna(x) and x < 7 else f"{x}j" if pd.notna(x) else "N/A"
+        if "Échéance (km)" in priority_table.columns:
+            priority_table["Échéance (km)"] = priority_table["Échéance (km)"].apply(
+                lambda x: "⚠️ Immédiat" if pd.notna(x) and int(x) == 0 else (f"{int(x):,} km".replace(",", " ") if pd.notna(x) else "N/A")
             )
         
         # Affichage du tableau
@@ -689,14 +754,17 @@ if "prob_panne" in filtered.columns and "panne_type_simple" in filtered.columns:
                 with col_obd1:
                     if "temp_moteur" in row:
                         temp_status = "🔥 ÉLEVÉE" if row["temp_moteur"] > 100 else "✅ Normale"
-                        st.metric("🌡️ Température moteur", f"{row['temp_moteur']:.1f}°C", temp_status)
+                        st.metric("🌡️ Température moteur", f"{row['temp_moteur']:.1f}°C")
+                        st.caption(f"Statut: {temp_status}")
                     if "pression_huile" in row:
                         press_status = "⚠️ BASSE" if row["pression_huile"] < 2.5 else "✅ Normale"
-                        st.metric("🛢️ Pression huile", f"{row['pression_huile']:.2f} bar", press_status)
+                        st.metric("🛢️ Pression huile", f"{row['pression_huile']:.2f} bar")
+                        st.caption(f"Statut: {press_status}")
                 with col_obd2:
                     if "voltage_batterie" in row:
                         volt_status = "🔋 FAIBLE" if row["voltage_batterie"] < 12.0 else "✅ Normale"
-                        st.metric("⚡ Voltage batterie", f"{row['voltage_batterie']:.2f}V", volt_status)
+                        st.metric("⚡ Voltage batterie", f"{row['voltage_batterie']:.2f}V")
+                        st.caption(f"Statut: {volt_status}")
                     if "regime_moteur" in row:
                         st.metric("⚙️ Régime moteur", f"{int(row['regime_moteur']):,}".replace(",", " ") + " RPM")
         
@@ -735,7 +803,7 @@ with st.expander("ℹ️ Comment utiliser ce tableau ?", expanded=False):
     **Colonnes principales :**
     - **🚦 Alerte** : Code couleur d'urgence
     - **Panne & Probabilité** : Ce que l'IA prédit
-    - **Délai estimé** : Combien de temps avant la panne probable
+    - **Échéance (km)** : Distance estimée avant la panne probable (tranches de 250 km)
     - **Données OBD** : Températures, pressions, voltages en temps réel
     - **Score Risque** : Évaluation globale du véhicule
     
@@ -746,8 +814,8 @@ with st.expander("ℹ️ Comment utiliser ce tableau ?", expanded=False):
 display_data = filtered.copy()
 
 core_cols = ["alerte_emoji", "vin", "modele", "statut", "panne_emoji", "panne_type_simple", "prob_panne"]
-if "jours_estime" in display_data.columns:
-    core_cols.append("jours_estime")
+if "km_estime" in display_data.columns:
+    core_cols.append("km_estime")
     
 score_cols = ["score_risque"]
 obd_cols = ["temp_moteur", "pression_huile", "regime_moteur", "voltage_batterie", "km_actuel", "km_depuis_revis"]
@@ -766,7 +834,7 @@ col_names = {
     "panne_emoji": "🔧",
     "panne_type_simple": "Type Panne",
     "prob_panne": "Prob.",
-    "jours_estime": "Délai",
+    "km_estime": "Échéance (km)",
     "score_risque": "Score Risque",
     "temp_moteur": "Temp.(°C)",
     "pression_huile": "Press.(bar)",
@@ -795,9 +863,9 @@ if "Km Total" in table_display.columns:
     table_display["Km Total"] = table_display["Km Total"].apply(lambda x: f"{int(x):,}".replace(",", " ") if pd.notna(x) else "N/A")
 if "Km / Révis." in table_display.columns:
     table_display["Km / Révis."] = table_display["Km / Révis."].apply(lambda x: f"{int(x):,}".replace(",", " ") if pd.notna(x) else "N/A")
-if "Délai" in table_display.columns:
-    table_display["Délai"] = table_display["Délai"].apply(
-        lambda x: f"{x}j" if pd.notna(x) else "-"
+if "Échéance (km)" in table_display.columns:
+    table_display["Échéance (km)"] = table_display["Échéance (km)"].apply(
+        lambda x: "⚠️ Immédiat" if pd.notna(x) and int(x) == 0 else (f"{int(x):,} km".replace(",", " ") if pd.notna(x) else "-")
     )
 
 st.dataframe(
@@ -895,7 +963,10 @@ with col_dist:
         # Compter uniquement les vraies pannes critiques (exclure OK)
         critical = len(filtered[(filtered["prob_panne"] >= 0.7) & (filtered["type_panne_predit"] != 0)])
         if total > 0:
-            st.info(f"📊 {critical}/{total} véhicules ({critical/total*100:.1f}%) en zone critique")
+            st.info(
+                f"📊 {critical}/{total} véhicules ({critical/total*100:.1f}%) en zone critique "
+                "(probabilite >= 70% et type != OK)"
+            )
 
 with col_corr:
     if all(col in filtered.columns for col in ["temp_moteur", "voltage_batterie", "prob_panne"]):
