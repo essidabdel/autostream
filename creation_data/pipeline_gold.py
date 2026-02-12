@@ -103,11 +103,23 @@ def run_gold_layer():
     features = df_gold_pandas[['temp_moyenne', 'pression_huile', 'regime_moteur', 'voltage_batterie', 'km_actuel', 'km_depuis_revis']]
     features = features.rename(columns={'temp_moyenne': 'temp_moteur'})
     predictions = model.predict(features)
-    proba = model.predict_proba(features).max(axis=1)
+    proba_all = model.predict_proba(features)
+    
+    # Calculer prob_panne correctement :
+    # - Si prédiction = 0 (OK), prob_panne = probabilité de la MEILLEURE panne (max des classes 1-4)
+    # - Sinon, prob_panne = probabilité de la classe prédite
+    prob_panne = []
+    for i, pred in enumerate(predictions):
+        if pred == 0:  # Prédit OK
+            # Prendre la plus haute probabilité parmi les pannes (classes 1-4)
+            prob_panne.append(proba_all[i, 1:].max())
+        else:  # Prédit une panne
+            # Prendre la probabilité de la classe prédite
+            prob_panne.append(proba_all[i, pred])
 
     # Ajouter au dataframe
     df_gold_pandas['type_panne_predit'] = predictions
-    df_gold_pandas['prob_panne'] = proba
+    df_gold_pandas['prob_panne'] = prob_panne
     
     # --- 💾 SAUVEGARDE FINALE ---
     # Ecriture en Python pour contourner les problemes Hadoop NativeIO sur Windows
