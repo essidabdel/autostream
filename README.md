@@ -1,89 +1,84 @@
-# AutoStream
+# 🚗 AutoStream
 
-AutoStream est un projet pedagogique de maintenance predictive pour flotte automobile. Il combine un mini data lake local (bronze/silver/gold), un pipeline de preparation des donnees, un modele de classification, et un tableau de bord Streamlit pour l'analyse et le suivi des risques de panne.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Spark](https://img.shields.io/badge/Apache%20Spark-PySpark-E25A1C?logo=apachespark&logoColor=white)](https://spark.apache.org/)
 
-L'objectif est de montrer un flux de bout en bout : generation de donnees, nettoyage, enrichissement, inference ML, puis visualisation.
+**Projet pédagogique de maintenance prédictive pour flotte automobile.**
 
-## Architecture du projet
+AutoStream combine un Data Lake local, un pipeline ETL Spark et du Machine Learning pour prédire les risques de pannes, le tout visualisé sur un tableau de bord interactif.
 
-- Zone bronze : donnees brutes (JSON, CSV, SQLite) issues d'une simulation.
-- Zone silver : donnees nettoyees et standardisees (CSV et Parquet partitionne).
-- Zone gold : features metier, predictions ML, agregations temporelles, rapports de qualite.
-- Applications Streamlit : plusieurs variantes d'interface pour l'exploration.
+---
 
-Le plan de stockage et les schemas attendus sont decrits dans data_catalog.md.
+### 🌐 Démo en ligne
 
-## Prerequis
+Accédez à l'application déployée ici :
 
-- Python 3.10+ recommande
-- pip
-- Pour la couche Spark : Java + PySpark
-- Sous Windows, les scripts Spark peuvent demander un environnement Hadoop/Winutils (ex. C:\hadoop)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)]([https://LIEN_DE_TON_APP_STREAMLIT](https://autostream-ds8wtypmwgmgxgdov8r3gq.streamlit.app/))
 
-## Installation
+---
 
+## 🏗️ Architecture Medallion
+
+Le projet suit un flux de données structuré de bout en bout :
+
+* 🥉 **Zone Bronze** : Données brutes simulées (JSON, CSV, SQLite).
+* 🥈 **Zone Silver** : Données nettoyées et standardisées via **Spark** (Parquet partitionné).
+* 🥇 **Zone Gold** : Features métier, prédictions ML, agrégations temporelles et rapports de qualité.
+* 📊 **Frontend** : Application **Streamlit** pour l'analyse et le monitoring.
+
+*Le plan de stockage détaillé est disponible dans `data_catalog.md`.*
+
+## ⚙️ Prérequis
+
+* **Python 3.10+**
+* **Java** (Requis pour la couche Spark)
+* *Windows uniquement* : Environnement Hadoop/Winutils configuré (ex. `C:\hadoop`).
+
+## 📦 Installation
+
+1. Cloner le projet et installer les dépendances :
 ```bash
 pip install -r requirements.txt
-```
+Si vous comptez exécuter les scripts Spark localement :
 
-Si vous executez les scripts Spark :
-
-```bash
+Bash
 pip install pyspark
-```
+🚀 Démarrage Rapide
+1. Entraîner le modèle
+(À faire lors de la première utilisation ou mise à jour de l'historique)
 
-## Demarrage rapide
-
-1) Entrainer le modele (a faire une fois ou apres changement des donnees historiques)
-
-```bash
+Bash
 python train_model.py
-```
+2. Lancer le pipeline complet (ETL Bronze → Gold)
 
-2) Lancer le pipeline complet (bronze -> silver -> gold)
-
-```bash
+Bash
 python run_all.py
-```
+3. Lancer le tableau de bord
 
-3) Lancer une interface Streamlit
-
-```bash
+Bash
 streamlit run app_glass.py
-```
+Variante Dark Mode : streamlit run app_dark.py
 
-Variantes d'interface :
+📂 Structure du Projet
+Plaintext
+AutoStream/
+├── analytics.py             # Fonctions d'accès aux données & KPI
+├── train_model.py           # Entraînement du RandomForest (génère model_pannes.pkl)
+├── run_all.py               # Orchestrateur global
+├── app_glass.py             # Interface Streamlit principale
+├── data/                    # Data Lake Local (Bronze/Silver/Gold/Quality)
+└── creation_data/
+    ├── generator.py         # Simulation des sources de données
+    ├── pipeline_spark.py    # Nettoyage et structuration (Silver)
+    ├── pipeline_gold.py     # Feature Engineering & Agrégations (Gold)
+    └── ml_inference.py      # Application du modèle & Scoring
+📝 Notes d'utilisation
+Reporting : Le dashboard lit automatiquement la dernière date disponible dans data/gold/parquet.
 
-```bash
-streamlit run app_dark.py
-streamlit run app_glass.py
-```
+Performance : L'exécution des scripts Spark peut varier selon la puissance de la machine.
 
-## Scripts principaux
+Dépannage : Si le fichier model_pannes.pkl est manquant, relancez train_model.py.
 
-- train_model.py : entraine un RandomForest et cree model_pannes.pkl
-- run_all.py : orchestre generator.py, pipeline_spark.py, pipeline_gold.py
-- creation_data/generator.py : simule les sources (JSON/CSV/SQLite)
-- creation_data/pipeline_spark.py : nettoie et structure la zone silver
-- creation_data/pipeline_gold.py : jointures, indicateurs metier, predictions ML, agregations
-- creation_data/ml_inference.py : applique le modele et calcule le statut de risque
-- analytics.py : fonctions d'acces aux donnees et conventions de calcul
-
-## Donnees et sorties
-
-- data/bronze : sources brutes simulees
-- data/silver : donnees nettoyees (CSV + Parquet)
-- data/gold/parquet/run_date=YYYY-MM-DD/reporting_final.parquet : dataset final
-- data/gold/aggregations : indicateurs journaliers/hebdo/mensuels
-- data/quality : rapports de qualite silver et gold
-
-## Notes d'utilisation
-
-- Le tableau de bord lit la derniere date disponible dans data/gold/parquet.
-- Les scripts Spark peuvent etre plus longs selon la machine.
-- Si model_pannes.pkl est absent, relancer train_model.py.
-
-## Auteur et cadre
-
-Projet academique realise pour illustrer un pipeline data/ML complet, avec une attention particuliere a la qualite des donnees et a la lisibilite des indicateurs.
-
+🎓 Auteur et Cadre
+Ce projet académique a été réalisé pour illustrer un pipeline Data/ML complet, avec une attention particulière portée à la qualité des données et à la lisibilité des indicateurs décisionnels.
