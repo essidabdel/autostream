@@ -61,19 +61,7 @@ streamlit run app_glass.py
 Variante Dark Mode : streamlit run app_dark.py
 
 ````
-📂 Structure du Projet
-Plaintext
-AutoStream/
-├── analytics.py             # Fonctions d'accès aux données & KPI
-├── train_model.py           # Entraînement du RandomForest (génère model_pannes.pkl)
-├── run_all.py               # Orchestrateur global
-├── app_glass.py             # Interface Streamlit principale
-├── data/                    # Data Lake Local (Bronze/Silver/Gold/Quality)
-└── creation_data/
-    ├── generator.py         # Simulation des sources de données
-    ├── pipeline_spark.py    # Nettoyage et structuration (Silver)
-    ├── pipeline_gold.py     # Feature Engineering & Agrégations (Gold)
-    └── ml_inference.py      # Application du modèle & Scoring
+
 📝 Notes d'utilisation
 Reporting : Le dashboard lit automatiquement la dernière date disponible dans data/gold/parquet.
 
@@ -83,5 +71,6 @@ Dépannage : Si le fichier model_pannes.pkl est manquant, relancez train_model.p
 
 🎓 Auteur et Cadre
 Ce projet académique a été réalisé pour illustrer un pipeline Data/ML complet, avec une attention particulière portée à la qualité des données et à la lisibilité des indicateurs décisionnels.
+
 
 
