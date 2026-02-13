@@ -49,7 +49,7 @@ python run_all.py
 3) Lancer une interface Streamlit
 
 ```bash
-streamlit run app.py
+streamlit run app_glass.py
 ```
 
 Variantes d'interface :
@@ -86,3 +86,4 @@ streamlit run app_glass.py
 ## Auteur et cadre
 
 Projet academique realise pour illustrer un pipeline data/ML complet, avec une attention particuliere a la qualite des donnees et a la lisibilite des indicateurs.
+
