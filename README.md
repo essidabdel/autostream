@@ -14,7 +14,7 @@ AutoStream combine un Data Lake local, un pipeline ETL Spark et du Machine Learn
 
 Accédez à l'application déployée ici :
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)]([https://LIEN_DE_TON_APP_STREAMLIT](https://autostream-ds8wtypmwgmgxgdov8r3gq.streamlit.app/))
+([https://LIEN_DE_TON_APP_STREAMLIT](https://autostream-ds8wtypmwgmgxgdov8r3gq.streamlit.app/))
 
 ---
 
@@ -42,23 +42,24 @@ Le projet suit un flux de données structuré de bout en bout :
 pip install -r requirements.txt
 Si vous comptez exécuter les scripts Spark localement :
 
-Bash
+```bash
 pip install pyspark
 🚀 Démarrage Rapide
 1. Entraîner le modèle
 (À faire lors de la première utilisation ou mise à jour de l'historique)
 
-Bash
+```bash
 python train_model.py
 2. Lancer le pipeline complet (ETL Bronze → Gold)
 
-Bash
+```bash
 python run_all.py
 3. Lancer le tableau de bord
 
-Bash
+```bash
 streamlit run app_glass.py
 Variante Dark Mode : streamlit run app_dark.py
+
 
 📂 Structure du Projet
 Plaintext
@@ -82,3 +83,4 @@ Dépannage : Si le fichier model_pannes.pkl est manquant, relancez train_model.p
 
 🎓 Auteur et Cadre
 Ce projet académique a été réalisé pour illustrer un pipeline Data/ML complet, avec une attention particulière portée à la qualité des données et à la lisibilité des indicateurs décisionnels.
+
