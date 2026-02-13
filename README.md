@@ -60,7 +60,7 @@ python run_all.py
 streamlit run app_glass.py
 Variante Dark Mode : streamlit run app_dark.py
 
-
+````
 📂 Structure du Projet
 Plaintext
 AutoStream/
@@ -83,4 +83,5 @@ Dépannage : Si le fichier model_pannes.pkl est manquant, relancez train_model.p
 
 🎓 Auteur et Cadre
 Ce projet académique a été réalisé pour illustrer un pipeline Data/ML complet, avec une attention particulière portée à la qualité des données et à la lisibilité des indicateurs décisionnels.
+
 
